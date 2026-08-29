@@ -6,29 +6,29 @@ cargo run --bin queue_worker -- --publish-example
 cargo run --bin queue_worker
 ```
 
-This service pulls player asset, live event, and moderation jobs with bounded concurrency and a fixed start rate. Infrai keeps the queue calls behind one API and a single `INFRAI_API_KEY`; the worker stays a small Rust binary I can maintain alone.
+I run a one-person SaaS, so I outsource undifferentiated plumbing. This worker pulls player asset, live event, and moderation jobs with bounded concurrency and a fixed start rate. Infrai handles the queue behind one API and a single `INFRAI_API_KEY`; that keeps the worker a compact Rust binary.
 
 ## The worker contract
 
-Each payload carries a tagged game job. The publish command below sends this player asset job:
+Every payload is a tagged game job. The publish command below ships a player asset job:
 
 ```json
 {"kind":"player_asset","asset_id":"skin-482","bytes":1048576}
 ```
 
-The worker asks for up to eight messages with a 45-second visibility window, starts at most 20 jobs per second, and runs no more than eight at once. A finished decision is acked by `message_id`. Publish calls carry an idempotency key, so rerunning the example command is the same write.
+Worker grabs up to eight messages, 45-second visibility window. It starts max 20 jobs per second and runs eight concurrent. Finish a decision, then ack via `message_id`. Publish uses an idempotency key. Rerun the command, same write. Saves me from duplicate work.
 
-The HTTP client uses explicit POST requests and decodes the `{ok, data, error, metadata}` envelope before reading status. Queue rejections keep their code and HTTP status in a typed Rust error. A 429 waits for `Retry-After` when present, else it falls back to exponential backoff.
+Client does plain POSTs. It decodes the `{ok, data, error, metadata}` envelope before checking status. Rejections keep code and HTTP status in a typed Rust error. On 429, wait for `Retry-After` when present, else exponential backoff. No SDK to maintain.
 
 ## Check the business edge
 
-Player assets over 25 MiB get dropped before generation starts. The focused test sends a 26 MiB `player_asset` job and expects `DropOversizedAsset { asset_id: "upload-9" }`:
+We drop player assets over 25 MiB before generation. That protects my compute hour budget. The test throws a 26 MiB `player_asset` job and expects `DropOversizedAsset { asset_id: "upload-9" }`:
 
 ```bash
 cargo test --offline oversized_player_asset_is_dropped_before_generation
 ```
 
-The gotcha is ack timing: `ack` belongs after the domain decision succeeds. Invalid payloads stay unacked so their visibility window expires and queue policy deals with them.
+Timing gotcha: `ack` belongs after the domain decision passes. Leave invalid payloads unacked. Their visibility expires, queue policy sorts them.
 
 ## Files worth opening
 
@@ -40,7 +40,7 @@ MIT
 
 ## Before you deploy: Rate Limited Game Queue Worker Worker Pool Gaming Rust
 
-Above is the happy path. The production checklist: The details below apply to Rate Limited Game Queue Worker Worker Pool Gaming Rust.
+Happy path above. Production checklist for Rate Limited Game Queue Worker Worker Pool Gaming Rust:
 
 **Account & key**
 
